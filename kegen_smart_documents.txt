@@ -1,0 +1,309 @@
+FUNCTION ZFM_MCS_CLAIM_PDF.
+*"----------------------------------------------------------------------
+*"*"Local Interface:
+*"  IMPORTING
+*"     VALUE(LV_URL) TYPE  EDESKCOMMURL
+*"     REFERENCE(CLAIMID) TYPE  STRING OPTIONAL
+*"     REFERENCE(FILENAME) TYPE  STRING OPTIONAL
+*"----------------------------------------------------------------------
+DATA: lo_http_client TYPE REF TO if_http_client.
+ DATA:    response TYPE string,
+          responsex type xstring.
+
+    data itab type table of zta_mcs_card_req .
+    data wa like line of itab.
+    data: data_tab type table of x255.
+    DATA gv_filename TYPE string.
+    DATA gv_path TYPE string.
+    DATA gv_fullpath TYPE string.
+    DATA gv_useraction TYPE i.
+    DATA gt_data TYPE TABLE OF string.
+    DATA gv_data TYPE string.
+      data: lv_http_error_descr      type string,
+        lv_http_error_descr_long type xstring.
+  data: lv_http_return_code  type i.
+  data    len type i.
+  data gt_content type standard table of tdline.
+  data p_path type string.
+  data lv_url2 type string.
+  data v_dir type string.
+  DATA: v_bol TYPE abap_bool.
+
+  REPLACE ALL OCCURRENCES OF ` ` IN lv_url WITH '%20' .
+
+
+
+* lv_url = 'https://data.smartapplicationsgroup.com/ripoti/reportapits/files/17022021104003-3862221-103-CF-USSD%20MANUAL.pdf'.
+ cl_http_client=>create_by_url(
+ EXPORTING
+ URL = lv_url " Logical destination (specified in function call)
+ IMPORTING
+ client = lo_http_client " HTTP Client Abstraction
+ EXCEPTIONS
+ argument_not_found = 1
+ plugin_not_active = 2
+ internal_error = 3
+ OTHERS = 4
+ ).
+
+      IF sy-subrc <> 0.
+        "error handling
+      ENDIF.
+   CALL METHOD lo_http_client->send
+  exporting
+      timeout                    = 150   " 15 Seconds
+    EXCEPTIONS
+      http_communication_failure = 1
+      http_invalid_state         = 2.
+   IF sy-subrc <> 0.
+**        "error handling
+      ENDIF.
+  CALL METHOD lo_http_client->receive
+    EXCEPTIONS
+      http_communication_failure = 1
+      http_invalid_state         = 2
+      http_processing_failed     = 3.
+
+
+  lo_http_client->response->get_status( importing code   = lv_http_return_code ).
+  lo_http_client->response->get_status( importing reason = lv_http_error_descr ).
+*   getting response
+
+ responsex = lo_http_client->response->get_data( ).
+CONCATENATE 'C:\' CLAIMID  INTO v_dir.
+
+CONCATENATE 'C:\' CLAIMID '\' FILENAME INTO p_path.
+
+****CALL METHOD cl_gui_frontend_services=>directory_exist
+****  EXPORTING
+****    directory            = v_dir
+****  RECEIVING
+****    result               = v_bol
+****  EXCEPTIONS
+****    cntl_error           = 1
+****    error_no_gui         = 2
+****    wrong_parameter      = 3
+****    not_supported_by_gui = 4
+****    OTHERS               = 5.
+****IF NOT v_bol IS INITIAL.
+****  WRITE:/ 'Directory exists.'.
+****
+****ELSE.
+****  WRITE:/ 'Directory does not exist.'.
+****
+****ENDIF.
+
+***p_path = 'c:\invoices\working2.pdf'.
+***  if sy-subrc <> 0.
+***    message 'Unable to convert xstring to binary'
+***      type 'E'.
+***  endif.
+
+
+
+DATA :
+  BEGIN OF SP_ATTACHMENT_ITAB OCCURS 0 ,
+  base64Encoded Type string ,
+  filename TYPE string,
+  proposalid TYPE string,
+  END OF SP_ATTACHMENT_ITAB .
+
+DATA cv_error_occurred type flag.
+DATA cv_error_msg type string.
+
+DATA: xstr TYPE xstring ,
+b64string TYPE string .
+
+
+
+*call function 'SCMS_XSTRING_TO_BINARY'
+*    exporting
+*      BUFFER        = responsex
+*    importing
+*      OUTPUT_LENGTH = len
+*     tables
+*       BINARY_TAB = gt_content.
+*
+*
+*  if sy-subrc <> 0.
+*    message 'Unable to convert xstring to binary'
+*      type 'E'.
+*  endif.
+*KGN70425******21-06-2021*********
+
+*DATA: contents_hex TYPE solix_tab .
+*
+*
+*
+*CALL FUNCTION 'SCMS_BINARY_TO_XSTRING'
+*EXPORTING
+*input_length = len
+*IMPORTING
+*buffer = responsex
+*TABLES
+*binary_tab = contents_hex
+*EXCEPTIONS
+*failed = 1
+*OTHERS = 2.
+*
+*
+*
+*xstr = cl_bcs_convert=>solix_to_xstring(
+*it_solix = contents_hex
+*).
+
+
+
+CALL FUNCTION 'SSFC_BASE64_ENCODE'
+EXPORTING
+bindata = responsex
+IMPORTING
+b64data = b64string
+EXCEPTIONS
+ssf_krn_error = 1
+ssf_krn_noop = 2
+ssf_krn_nomemory = 3
+ssf_krn_opinv = 4
+ssf_krn_input_data_error = 5
+ssf_krn_invalid_par = 6
+ssf_krn_invalid_parlen = 7
+OTHERS = 8.
+
+
+
+
+IF sy-subrc <> 0.
+MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+
+ELSE .
+
+DATA :   lr_request TYPE REF TO if_http_request,
+lo_client TYPE REF TO if_http_client,
+lv_code TYPE i,
+lv_xdata TYPE xstring.
+data  cv_response_body type string .
+data  cv_status type i .
+
+
+CALL METHOD cl_http_client=>create_by_destination
+EXPORTING
+destination              = 'SP_ATTACHMENTS'
+IMPORTING
+client                = lo_client
+EXCEPTIONS
+argument_not_found       = 1
+destination_not_found    = 2
+destination_no_authority = 3
+plugin_not_active        = 4
+internal_error           = 5
+OTHERS                   = 6.
+
+
+data ty TYPE string .
+
+ty = b64string  .
+
+
+ SP_ATTACHMENT_ITAB-base64Encoded = b64string .
+ SP_ATTACHMENT_ITAB-filename = filename .
+ SP_ATTACHMENT_ITAB-proposalid = CLAIMID .
+
+
+
+
+DATA SPRECORD LIKE TABLE OF ZMCS_INV_SPOINT .
+DATA WA_SPRECORD LIKE LINE OF SPRECORD.
+WA_SPRECORD-INVSN = CLAIMID .
+WA_SPRECORD-DOCNAME = filename .
+
+
+INSERT INTO zmcs_inv_spoint  VALUES wa_sprecord  .
+
+APPEND SP_ATTACHMENT_ITAB  .
+DATA lr_json_serializer   TYPE REF TO cl_trex_json_serializer.
+DATA lv_vdata TYPE string .
+
+CREATE OBJECT lr_json_serializer  EXPORTING  data = SP_ATTACHMENT_ITAB.
+  lr_json_serializer->serialize( ).
+  lv_vdata = lr_json_serializer->get_data( ).
+
+ty = lv_vdata.
+
+CONCATENATE '[' ty ']' INTO ty .
+call method lo_client->request->set_cdata
+exporting
+data = ty.
+
+  lo_client->request->set_cdata( ty  ).
+  lo_client->request->set_content_type( 'application/json' ).
+  lo_client->request->set_method( 'POST' ).
+  call method lo_client->send
+    exceptions
+      http_communication_failure = 1
+      http_invalid_state         = 2
+      http_processing_failed     = 3
+      others                     = 4.
+  if sy-subrc ne 0.
+    lo_client->get_last_error( importing message = cv_error_msg ).
+    cv_error_occurred = 'X'.
+    return.
+  endif.
+
+  lo_client->receive( exceptions others = 1 ).
+  if sy-subrc ne 0.
+    lo_client->get_last_error( importing message = cv_error_msg ).
+    cv_error_occurred = 'X'.
+    return.
+  endif.
+
+  cv_response_body = lo_client->response->get_cdata( ).
+  lo_client->response->get_status( importing code = cv_status ).
+
+endif.
+
+
+
+
+
+
+*  call function 'GUI_DOWNLOAD'
+*    exporting
+*      bin_filesize            = len
+*      filename                = p_path
+*      filetype                = 'BIN'
+*      NO_AUTH_CHECK           = ' '
+*    tables
+*      data_tab                = gt_content
+*    exceptions
+*      file_write_error        = 1
+*      no_batch                = 2
+*      gui_refuse_filetransfer = 3
+*      invalid_type            = 4
+*      no_authority            = 5
+*      unknown_error           = 6
+*      header_not_allowed      = 7
+*      separator_not_allowed   = 8
+*      filesize_not_allowed    = 9
+*      header_too_long         = 10
+*      dp_error_create         = 11
+*      dp_error_send           = 12
+*      dp_error_write          = 13
+*      unknown_dp_error        = 14
+*      access_denied           = 15
+*      dp_out_of_memory        = 16
+*      disk_full               = 17
+*      dp_timeout              = 18
+*      file_not_found          = 19
+*      dataprovider_exception  = 20
+*      control_flush_error     = 21
+*      others                  = 22.
+*  if sy-subrc <> 0.
+*    message 'Unable to download file from SAP'
+*      type 'E'.
+*  endif.
+*
+
+*************end of KGN70425**********21-06-2021**********
+
+ENDFUNCTION.
